@@ -18,7 +18,7 @@ on:
         required: false
         default: "#1E88E5"
       icon_url:
-        description: "Square PNG/JPG icon URL, 512px+ (blank = default globe)"
+        description: "Square PNG/JPG icon, 512px+: a URL or a path in this repo like icons/pulse.png (blank = default globe)"
         required: false
         default: ""
       version_code:
