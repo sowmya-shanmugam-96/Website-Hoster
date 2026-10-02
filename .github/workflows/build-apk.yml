@@ -130,6 +130,7 @@ jobs:
           JSON
 
           echo "slug=${SLUG}" >> "$GITHUB_OUTPUT"
+          echo "assetlinks.json:" && cat dist/assetlinks.json
           {
             echo "## APK built for ${ORIGIN}"
             echo
