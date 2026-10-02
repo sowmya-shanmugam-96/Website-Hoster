@@ -26,6 +26,7 @@ def packageId = prop("packageId", derivedPackageId)
 def appName = prop("appName", host)
 def themeColor = prop("themeColor", "#1E88E5")
 def backgroundColor = prop("backgroundColor", "#FFFFFF")
+def alarmTag = prop("alarmTag", "")
 
 // Escape for an Android string resource
 def resEscape = { String s -> s.replace("\\", "\\\\").replace("'", "\\'").replace("\"", "\\\"").replace("@", "\\@").replace("?", "\\?") }
@@ -48,6 +49,9 @@ android {
         resValue "string", "providerAuthority", packageId + ".fileprovider"
         resValue "color", "themeColor", themeColor
         resValue "color", "backgroundColor", backgroundColor
+        // Notifications whose web tag contains alarmTag play res/raw/alarm_sound.* (blank = off)
+        resValue "string", "alarmTag", resEscape(alarmTag)
+        resValue "string", "alarmChannelName", "Alarms"
         // Digital Asset Links statement: tells Chrome this app is allowed to open the site full-screen.
         resValue "string", "assetStatements",
                 '[{ \\"relation\\": [\\"delegate_permission/common.handle_all_urls\\"],' +
@@ -85,6 +89,8 @@ android {
 
 dependencies {
     implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.5.0"
+    // DelegationService's superclass; Gradle still resolves the version androidbrowserhelper needs
+    implementation "androidx.browser:browser:1.4.0"
 }
 
 tasks.register("printAppConfig") {

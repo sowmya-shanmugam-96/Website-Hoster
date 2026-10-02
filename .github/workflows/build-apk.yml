@@ -21,6 +21,14 @@ on:
         description: "Square PNG/JPG icon, 512px+: a URL or a path in this repo like icons/pulse.png (blank = default globe)"
         required: false
         default: ""
+      alarm_sound:
+        description: "Alarm sound, mp3/ogg/wav: a URL or a path in this repo (blank = none)"
+        required: false
+        default: ""
+      alarm_tag:
+        description: "Notifications whose tag contains this text play the alarm sound (blank = none)"
+        required: false
+        default: ""
       version_code:
         description: "Version code (integer, increase for each update)"
         required: false
@@ -61,6 +69,12 @@ jobs:
           pip install --quiet pillow
           python scripts/set_icon.py "$ICON_URL"
 
+      - name: Install alarm sound
+        if: ${{ inputs.alarm_sound != '' }}
+        env:
+          ALARM_SOUND: ${{ inputs.alarm_sound }}
+        run: python scripts/set_sound.py "$ALARM_SOUND"
+
       - name: Prepare signing key
         id: signing
         env:
@@ -96,9 +110,11 @@ jobs:
           IN_THEME: ${{ inputs.theme_color }}
           IN_VCODE: ${{ inputs.version_code }}
           IN_VNAME: ${{ inputs.version_name }}
+          IN_ALARM_TAG: ${{ inputs.alarm_tag }}
         run: |
           ARGS=(-PappUrl="$IN_URL" -PappName="$IN_NAME" -PpackageId="$IN_PACKAGE" \
-                -PthemeColor="$IN_THEME" -PversionCode="$IN_VCODE" -PversionName="$IN_VNAME")
+                -PthemeColor="$IN_THEME" -PversionCode="$IN_VCODE" -PversionName="$IN_VNAME" \
+                -PalarmTag="$IN_ALARM_TAG")
           gradle --no-daemon "${ARGS[@]}" printAppConfig | tee config.txt
           gradle --no-daemon "${ARGS[@]}" :app:assembleRelease
 

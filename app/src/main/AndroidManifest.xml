@@ -83,10 +83,11 @@
         <!--
           Notification delegation: when the site's service worker calls showNotification(),
           Chrome hands the notification to this service so it appears under the app's
-          name and icon instead of under Chrome.
+          name and icon instead of under Chrome. AlarmDelegationService routes notifications
+          whose tag contains alarmTag to a channel with the bundled alarm sound.
         -->
         <service
-            android:name="com.google.androidbrowserhelper.trusted.DelegationService"
+            android:name="com.urltoapk.shell.AlarmDelegationService"
             android:enabled="true"
             android:exported="true">
             <meta-data

@@ -29,7 +29,9 @@ The APK is a **Trusted Web Activity (TWA)**, the same tech Google uses for PWAs 
    | app_name | `Example` |
    | package_id | leave blank → `com.example.app.twa` (keep it **the same** for every build of the same app) |
    | theme_color | `#1E88E5` |
-   | icon_url | link to a square PNG, 512px or larger (optional) |
+   | icon_url | link to a square PNG, 512px or larger, or a path in this repo like `icons/pulse.png` (optional) |
+   | alarm_sound | mp3/ogg/wav: a URL or a path in this repo (optional, see [Alarm sound](#alarm-sound)) |
+   | alarm_tag | notifications whose tag contains this text play the alarm sound (optional) |
    | version_code / version_name | increase these for each update |
 3. When the run finishes, download the artifact. It contains the `.apk` **and** an `assetlinks.json`.
    The run summary shows the same JSON.
@@ -51,6 +53,12 @@ https://<your-domain>/.well-known/assetlinks.json
 
 To have one app cover several apps or keys, put multiple entries in the JSON array.
 
+**The build `url` must be the address the site is actually served from.** If it only
+redirects to another host (e.g. a short domain forwarding to a tunnel address), Chrome
+verifies the host the app ends up on, which doesn't match the app, so the URL bar shows
+and notifications stay under Chrome. Build with the final address and host
+`assetlinks.json` there.
+
 ## Website requirements for notifications
 
 The app delivers notifications that the **website** sends. The site needs standard web push:
@@ -60,6 +68,28 @@ The app delivers notifications that the **website** sends. The site needs standa
 3. A server (or a service like Firebase Cloud Messaging, OneSignal, etc.) that sends pushes to those subscriptions.
 
 If the site already sends push notifications in Chrome on Android, it works in the app without changes.
+
+## Alarm sound
+
+A website can't pick a notification sound on Android 8+; the notification *channel* decides.
+To make some notifications loud, the app can route them to a separate **Alarms** channel
+that plays a sound bundled into the APK, even when the app is closed:
+
+- `alarm_sound`: the audio file (mp3, ogg or wav), as a URL or a path in this repo.
+- `alarm_tag`: text to look for in the notification's `tag`. The site sets the tag in its
+  service worker, e.g. `registration.showNotification(title, { tag: 'whatsapp-123', ... })`
+  matches `alarm_tag: whatsapp-`.
+
+Both must be set for the feature to switch on. Everything else keeps using the default
+channel and the phone's normal sound. Users can still adjust or mute the Alarms channel in
+Android's app notification settings.
+
+A channel's sound is fixed when it is first created on the phone. To change the sound for an
+app that's already installed, change `ALARM_CHANNEL_ID` in `AlarmDelegationService.java`
+(or reinstall the app).
+
+This repo is public, so don't commit a sound you don't have the rights to share. Host it
+somewhere private and pass the URL instead. A local `res/raw/alarm_sound.*` is git-ignored.
 
 ## Use a permanent signing key (do this before sharing the app)
 
