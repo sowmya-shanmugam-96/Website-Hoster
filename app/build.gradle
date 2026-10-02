@@ -1,0 +1,97 @@
+plugins {
+    id "com.android.application"
+}
+
+// ---- Read the app configuration (gradle.properties or -P overrides) ----
+def prop = { String name, String fallback ->
+    def v = project.findProperty(name)?.toString()?.trim()
+    return (v == null || v.isEmpty()) ? fallback : v
+}
+
+def appUrl = prop("appUrl", "https://example.com/")
+def uri = new URI(appUrl)
+if (uri.scheme != "https" || !uri.host) {
+    throw new GradleException("appUrl must be a full https:// URL, got: ${appUrl}")
+}
+def host = uri.host.toLowerCase()
+def origin = "https://" + host + (uri.port > 0 ? ":" + uri.port : "")
+
+// app.example.com -> com.example.app.twa (each segment made a valid Java identifier)
+def derivedPackageId = (host.split("\\.").reverse().collect { seg ->
+    def s = seg.replaceAll("[^A-Za-z0-9_]", "_")
+    (s.isEmpty() || Character.isDigit(s.charAt(0))) ? "x" + s : s
+} + ["twa"]).join(".")
+
+def packageId = prop("packageId", derivedPackageId)
+def appName = prop("appName", host)
+def themeColor = prop("themeColor", "#1E88E5")
+def backgroundColor = prop("backgroundColor", "#FFFFFF")
+
+// Escape for an Android string resource
+def resEscape = { String s -> s.replace("\\", "\\\\").replace("'", "\\'").replace("\"", "\\\"").replace("@", "\\@").replace("?", "\\?") }
+
+android {
+    namespace "com.urltoapk.shell"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId packageId
+        minSdk 26
+        targetSdk 35
+        versionCode prop("versionCode", "1").toInteger()
+        versionName prop("versionName", "1.0.0")
+
+        manifestPlaceholders = [hostName: host]
+
+        resValue "string", "appName", resEscape(appName)
+        resValue "string", "launchUrl", appUrl
+        resValue "string", "providerAuthority", packageId + ".fileprovider"
+        resValue "color", "themeColor", themeColor
+        resValue "color", "backgroundColor", backgroundColor
+        // Digital Asset Links statement: tells Chrome this app is allowed to open the site full-screen.
+        resValue "string", "assetStatements",
+                '[{ \\"relation\\": [\\"delegate_permission/common.handle_all_urls\\"],' +
+                ' \\"target\\": {\\"namespace\\": \\"web\\", \\"site\\": \\"' + origin + '\\"}}]'
+    }
+
+    signingConfigs {
+        release {
+            def ks = System.getenv("KEYSTORE_FILE")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD") ?: System.getenv("KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig System.getenv("KEYSTORE_FILE") ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        resValues true
+    }
+}
+
+dependencies {
+    implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.5.0"
+}
+
+tasks.register("printAppConfig") {
+    doLast {
+        println "appUrl=${appUrl}"
+        println "origin=${origin}"
+        println "packageId=${packageId}"
+        println "appName=${appName}"
+    }
+}

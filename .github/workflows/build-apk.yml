@@ -1,0 +1,164 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Website URL to wrap (https://...)"
+        required: true
+      app_name:
+        description: "App name shown under the icon"
+        required: true
+      package_id:
+        description: "Android package id (blank = derived from the URL; keep it the same across builds)"
+        required: false
+        default: ""
+      theme_color:
+        description: "Status bar / icon background colour"
+        required: false
+        default: "#1E88E5"
+      icon_url:
+        description: "Square PNG/JPG icon URL, 512px+ (blank = default globe)"
+        required: false
+        default: ""
+      version_code:
+        description: "Version code (integer, increase for each update)"
+        required: false
+        default: "1"
+      version_name:
+        description: "Version name"
+        required: false
+        default: "1.0.0"
+      create_release:
+        description: "Also publish the APK as a GitHub Release"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Install custom icon
+        if: ${{ inputs.icon_url != '' }}
+        env:
+          ICON_URL: ${{ inputs.icon_url }}
+        run: |
+          pip install --quiet pillow
+          python scripts/set_icon.py "$ICON_URL"
+
+      - name: Prepare signing key
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "ephemeral=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No KEYSTORE_BASE64 secret - signing with a throwaway key. Fine for testing, but you cannot ship updates and assetlinks.json changes every build. See README."
+            keytool -genkeypair -keystore "$RUNNER_TEMP/release.jks" -alias app -keyalg RSA -keysize 2048 \
+              -validity 10000 -storepass changeit -keypass changeit -dname "CN=url-to-apk"
+            {
+              echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks"
+              echo "KEYSTORE_PASSWORD=changeit"
+              echo "KEY_PASSWORD=changeit"
+              echo "KEY_ALIAS=app"
+            } >> "$GITHUB_ENV"
+            echo "ephemeral=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build signed APK
+        env:
+          KEYSTORE_PASSWORD: ${{ env.KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ env.KEY_ALIAS || secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ env.KEY_PASSWORD || secrets.KEY_PASSWORD }}
+          IN_URL: ${{ inputs.url }}
+          IN_NAME: ${{ inputs.app_name }}
+          IN_PACKAGE: ${{ inputs.package_id }}
+          IN_THEME: ${{ inputs.theme_color }}
+          IN_VCODE: ${{ inputs.version_code }}
+          IN_VNAME: ${{ inputs.version_name }}
+        run: |
+          ARGS=(-PappUrl="$IN_URL" -PappName="$IN_NAME" -PpackageId="$IN_PACKAGE" \
+                -PthemeColor="$IN_THEME" -PversionCode="$IN_VCODE" -PversionName="$IN_VNAME")
+          gradle --no-daemon "${ARGS[@]}" printAppConfig | tee config.txt
+          gradle --no-daemon "${ARGS[@]}" :app:assembleRelease
+
+      - name: Collect APK and assetlinks.json
+        id: collect
+        env:
+          KEYSTORE_PASSWORD: ${{ env.KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ env.KEY_ALIAS || secrets.KEY_ALIAS }}
+          IN_VNAME: ${{ inputs.version_name }}
+        run: |
+          PACKAGE_ID=$(grep '^packageId=' config.txt | cut -d= -f2-)
+          ORIGIN=$(grep '^origin=' config.txt | cut -d= -f2-)
+          SLUG=$(echo "$PACKAGE_ID" | tr '.' '-')
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/${SLUG}-${IN_VNAME}.apk"
+
+          FINGERPRINT=$(keytool -list -v -keystore "$KEYSTORE_FILE" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" \
+            | grep -E '^\s*SHA256:' | head -1 | sed -E 's/^\s*SHA256:\s*//')
+
+          cat > dist/assetlinks.json <<JSON
+          [{
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+              "namespace": "android_app",
+              "package_name": "${PACKAGE_ID}",
+              "sha256_cert_fingerprints": ["${FINGERPRINT}"]
+            }
+          }]
+          JSON
+
+          echo "slug=${SLUG}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## APK built for ${ORIGIN}"
+            echo
+            echo "- Package: \`${PACKAGE_ID}\`"
+            echo "- Signing SHA-256: \`${FINGERPRINT}\`"
+            if [ "${{ steps.signing.outputs.ephemeral }}" = "true" ]; then
+              echo
+              echo "> **Throwaway signing key.** Add the KEYSTORE_* secrets (see README) before sharing this app."
+            fi
+            echo
+            echo "### Required: publish this at \`${ORIGIN}/.well-known/assetlinks.json\`"
+            echo "Without it the app shows a browser URL bar and notifications appear under Chrome instead of your app."
+            echo
+            echo '```json'
+            cat dist/assetlinks.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.collect.outputs.slug }}-${{ inputs.version_name }}
+          path: dist/*
+
+      - name: Publish GitHub Release
+        if: ${{ inputs.create_release }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.collect.outputs.slug }}-v${{ inputs.version_name }}
+          name: ${{ inputs.app_name }} ${{ inputs.version_name }}
+          files: dist/*
