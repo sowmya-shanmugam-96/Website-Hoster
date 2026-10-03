@@ -82,11 +82,12 @@ that plays a sound bundled into the APK, even when the app is closed:
   matches `alarm_tag: whatsapp-`.
 
 Both must be set for the feature to switch on. Everything else keeps using the default
-channel and the phone's normal sound. Users can still adjust or mute the Alarms channel in
-Android's app notification settings.
+channel and the phone's normal sound. The alarm plays at the phone's *alarm* volume, so it
+sounds with the ringer on vibrate or silent. Users can still adjust or mute the Alarms channel
+in Android's app notification settings.
 
 A channel's sound is fixed when it is first created on the phone. To change the sound for an
-app that's already installed, change `ALARM_CHANNEL_ID` in `AlarmDelegationService.java`
+app that's already installed, change `ID` in `AlarmChannel.java` and add the old id to `RETIRED`
 (or reinstall the app).
 
 This repo is public, so don't commit a sound you don't have the rights to share. Host it
@@ -150,6 +151,18 @@ Send `token` to your server. The server sends a **data-only** FCM message
 | `title`, `body` | the notification text |
 | `tag` | same tag replaces the previous notification; matched against `alarm_tag` |
 | `url` | page to open on tap: a path like `/?alarm=1`, or a URL on the same site |
+
+In native builds an alarm (a tag matching `alarm_tag`) repeats its sound until the
+notification is tapped or dismissed, unless the app is on screen.
+
+The open page also gets every push, whatever its data, as an event, the way a site's service
+worker would `postMessage` it. Use it to react in the page, e.g. start an in-page sound:
+
+```js
+window.addEventListener('nativepush', (event) => {
+  const data = event.detail; // the message's data, all strings
+});
+```
 
 Send with `android.priority: "HIGH"` so it shows promptly on a sleeping phone. If FCM answers
 `UNREGISTERED` (404), the app was uninstalled, so drop that token.

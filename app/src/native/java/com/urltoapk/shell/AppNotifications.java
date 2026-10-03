@@ -15,7 +15,12 @@ final class AppNotifications {
 
     private AppNotifications() {}
 
-    static void show(Context context, String title, String body, String tag, String url) {
+    /**
+     * @param repeat for an alarm, keep playing its sound until the notification is tapped,
+     *               dismissed or the shade is opened, instead of playing it once
+     */
+    static void show(Context context, String title, String body, String tag, String url,
+            boolean repeat) {
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         if (manager == null || !manager.areNotificationsEnabled()) return;
 
@@ -54,6 +59,7 @@ final class AppNotifications {
                 .setAutoCancel(true)
                 .setCategory(alarm ? Notification.CATEGORY_ALARM : Notification.CATEGORY_REMINDER)
                 .build();
+        if (alarm && repeat) notification.flags |= Notification.FLAG_INSISTENT;
         manager.notify(tag, 0, notification);
     }
 

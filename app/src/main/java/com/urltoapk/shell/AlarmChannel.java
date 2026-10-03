@@ -13,8 +13,10 @@ import android.net.Uri;
  */
 final class AlarmChannel {
     // A channel's sound and vibration are fixed when it is created and cannot be changed
-    // afterwards, so change this id whenever the sound or the vibration pattern changes.
-    static final String ID = "alarm_v1";
+    // afterwards, so change this id whenever the sound or the vibration pattern changes, and
+    // add the old one to RETIRED so it doesn't linger in the app's notification settings.
+    static final String ID = "alarm_v2";
+    private static final String[] RETIRED = {"alarm_v1"};
 
     private static final long[] VIBRATION =
             {0, 600, 200, 600, 200, 600, 200, 600, 200, 600, 200, 900};
@@ -34,14 +36,17 @@ final class AlarmChannel {
                 context.getString(R.string.alarmChannelName), NotificationManager.IMPORTANCE_HIGH);
         Uri sound = Uri.parse(
                 "android.resource://" + context.getPackageName() + "/" + soundId(context));
+        // USAGE_ALARM: played at the alarm volume, so it still sounds with the ringer on
+        // vibrate or silent, the way a clock alarm does.
         channel.setSound(sound, new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setUsage(AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build());
         channel.enableVibration(true);
         channel.setVibrationPattern(VIBRATION);
         // No-op if the channel already exists; the user's own changes to it are kept.
         manager.createNotificationChannel(channel);
+        for (String old : RETIRED) manager.deleteNotificationChannel(old);
 
         NotificationChannel live = manager.getNotificationChannel(ID);
         return live == null || live.getImportance() != NotificationManager.IMPORTANCE_NONE;

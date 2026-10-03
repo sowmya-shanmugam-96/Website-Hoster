@@ -22,7 +22,11 @@ public class PushMessagingService extends FirebaseMessagingService {
             if (title == null) title = message.getNotification().getTitle();
             if (body == null) body = message.getNotification().getBody();
         }
-        AppNotifications.show(this, title, body, data.get("tag"), data.get("url"));
+        // The open page gets every push too, as a "nativepush" event, so it can react the way
+        // a site does to a service worker message (e.g. start its own alarm sound). While the
+        // app is on screen the page is the one making noise, so the alarm doesn't also repeat.
+        boolean onScreen = WebAppActivity.handToPage(data);
+        AppNotifications.show(this, title, body, data.get("tag"), data.get("url"), !onScreen);
     }
 
     @Override

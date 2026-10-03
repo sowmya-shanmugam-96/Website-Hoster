@@ -47,7 +47,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -120,6 +122,10 @@ public class WebAppActivity extends Activity {
             + "  }, true);\n"
             + "})();";
 
+    // The running activity, if any, so pushes can be handed to its page.
+    private static WeakReference<WebAppActivity> current = new WeakReference<>(null);
+    private volatile boolean onScreen;
+
     private WebView webView;
     private Uri startUri;
     private String origin;
@@ -158,6 +164,8 @@ public class WebAppActivity extends Activity {
         webView.setDownloadListener(this::download);
         installBridge();
 
+        current = new WeakReference<>(this);
+
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
@@ -181,13 +189,21 @@ public class WebAppActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        onScreen = true;
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
+        onScreen = false;
         CookieManager.getInstance().flush();
     }
 
     @Override
     protected void onDestroy() {
+        if (current.get() == this) current.clear();
         webView.destroy();
         super.onDestroy();
     }
@@ -278,6 +294,26 @@ public class WebAppActivity extends Activity {
     }
 
     // ---- Page <-> app bridge --------------------------------------------------------------
+
+    /**
+     * Gives a push's data to the open page, if there is one, as
+     * window.dispatchEvent(new CustomEvent('nativepush', {detail: data})) - the WebView has no
+     * service worker to tell it. Callable from any thread. Returns whether the app is on screen.
+     */
+    static boolean handToPage(Map<String, String> data) {
+        WebAppActivity activity = current.get();
+        if (activity == null || activity.isDestroyed()) return false;
+        String detail = new JSONObject(data).toString();
+        activity.runOnUiThread(() -> {
+            if (activity.isDestroyed()) return;
+            String url = activity.webView.getUrl();
+            if (url == null || !sameSite(activity.startUri, Uri.parse(url))) return;
+            activity.webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('nativepush', {detail: " + detail + "}));",
+                    null);
+        });
+        return activity.onScreen;
+    }
 
     private void installBridge() {
         Set<String> allowed = Collections.singleton(origin);
