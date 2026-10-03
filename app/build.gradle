@@ -28,6 +28,18 @@ def themeColor = prop("themeColor", "#1E88E5")
 def backgroundColor = prop("backgroundColor", "#FFFFFF")
 def alarmTag = prop("alarmTag", "")
 
+// Native mode: the site in the app's own WebView, with push through Firebase Cloud Messaging,
+// instead of a Trusted Web Activity in Chrome. Off by default; see README "Native mode".
+def nativePush = prop("nativePush", "false").toBoolean()
+// From google-services.json (scripts/firebase_config.py). Optional: without them the app still
+// builds and runs, just without push.
+def firebase = [
+        google_app_id      : prop("firebaseAppId", ""),
+        google_api_key     : prop("firebaseApiKey", ""),
+        gcm_defaultSenderId: prop("firebaseSenderId", ""),
+        project_id         : prop("firebaseProjectId", ""),
+]
+
 // Escape for an Android string resource
 def resEscape = { String s -> s.replace("\\", "\\\\").replace("'", "\\'").replace("\"", "\\\"").replace("@", "\\@").replace("?", "\\?") }
 
@@ -52,6 +64,12 @@ android {
         // Notifications whose web tag contains alarmTag play res/raw/alarm_sound.* (blank = off)
         resValue "string", "alarmTag", resEscape(alarmTag)
         resValue "string", "alarmChannelName", "Alarms"
+        resValue "string", "notificationChannelName", "Notifications"
+        // The resources Firebase reads to initialise itself, as the google-services plugin
+        // would generate them.
+        if (nativePush && firebase.google_app_id) {
+            firebase.each { name, value -> resValue "string", name, value }
+        }
         // Digital Asset Links statement: tells Chrome this app is allowed to open the site full-screen.
         resValue "string", "assetStatements",
                 '[{ \\"relation\\": [\\"delegate_permission/common.handle_all_urls\\"],' +
@@ -77,6 +95,15 @@ android {
         }
     }
 
+    sourceSets {
+        main {
+            if (nativePush) {
+                manifest.srcFile "src/native/AndroidManifest.xml"
+                java.srcDir "src/native/java"
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -91,6 +118,11 @@ dependencies {
     implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.5.0"
     // DelegationService's superclass; Gradle still resolves the version androidbrowserhelper needs
     implementation "androidx.browser:browser:1.4.0"
+
+    if (nativePush) {
+        implementation "com.google.firebase:firebase-messaging:24.1.0"
+        implementation "androidx.webkit:webkit:1.12.1"
+    }
 }
 
 tasks.register("printAppConfig") {
@@ -99,5 +131,6 @@ tasks.register("printAppConfig") {
         println "origin=${origin}"
         println "packageId=${packageId}"
         println "appName=${appName}"
+        println "nativePush=${nativePush}"
     }
 }

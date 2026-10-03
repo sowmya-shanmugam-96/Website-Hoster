@@ -32,6 +32,7 @@ The APK is a **Trusted Web Activity (TWA)**, the same tech Google uses for PWAs 
    | icon_url | link to a square PNG, 512px or larger, or a path in this repo like `icons/pulse.png` (optional) |
    | alarm_sound | mp3/ogg/wav: a URL or a path in this repo (optional, see [Alarm sound](#alarm-sound)) |
    | alarm_tag | notifications whose tag contains this text play the alarm sound (optional) |
+   | native_push | off = Chrome (TWA, the default); on = the app's own WebView with Firebase push (see [Native mode](#native-mode-webview--firebase-push)) |
    | version_code / version_name | increase these for each update |
 3. When the run finishes, download the artifact. It contains the `.apk` **and** an `assetlinks.json`.
    The run summary shows the same JSON.
@@ -90,6 +91,68 @@ app that's already installed, change `ALARM_CHANNEL_ID` in `AlarmDelegationServi
 
 This repo is public, so don't commit a sound you don't have the rights to share. Host it
 somewhere private and pass the URL instead. A local `res/raw/alarm_sound.*` is git-ignored.
+
+## Native mode (WebView + Firebase push)
+
+The default build runs the site inside Chrome, which needs Google to fetch
+`assetlinks.json` from the site. That's impossible for a site that isn't on the public
+internet, such as one only reachable over a VPN or Tailscale. Native mode avoids Chrome:
+
+- The site runs in the app's own full-screen WebView. There's no `assetlinks.json` check
+  and never a URL bar.
+- Push comes from **Firebase Cloud Messaging** straight to the app. It arrives even when
+  Chrome and the app are closed, and the phone doesn't need the VPN to receive it (only to
+  open the site).
+- Web push (`PushManager`) and the page's `Notification` API don't exist in a WebView, so
+  **the site has to support the app's bridge** and **its server has to send through
+  Firebase**. See "What the site needs" below.
+- The page's microphone (`getUserMedia({audio: true})`), file inputs and downloads (normal
+  links, and `blob:`/`data:` links with a `download` attribute) work. Links to other sites
+  open in the phone's browser or apps. The camera isn't granted to the page.
+- `alarm_sound` / `alarm_tag` work the same way as in Chrome builds.
+
+### One-time Firebase setup
+
+1. In the [Firebase console](https://console.firebase.google.com/), create a project (or
+   use one you already have; Analytics isn't needed).
+2. **Add app → Android**, with the same package id you build with (e.g. `in.smokerings.ops`).
+   Skip the SHA and the SDK steps.
+3. Download `google-services.json` and save its whole contents as the repository secret
+   **`GOOGLE_SERVICES_JSON`** (Settings → Secrets and variables → Actions). One file covers
+   every Android app in that project; download it again after adding another app.
+4. For the site's server: **Project settings → Service accounts → Generate new private
+   key**. Keep that JSON on the server only. It's what lets the server send pushes.
+
+Then run Build APK with `native_push` on. Without the secret, the build still works but
+has no push (the run shows a warning).
+
+### What the site needs
+
+The page sees a `NativePush` object (only on the app's own origin):
+
+```js
+// Reply handler: every request gets back the current state.
+NativePush.onmessage = (event) => {
+  const state = JSON.parse(event.data);
+  // { type: 'state', available: true, permission: 'granted' | 'denied' | 'default',
+  //   token: '<FCM token>', error?: '...' }
+};
+NativePush.postMessage(JSON.stringify({ type: 'state' }));   // just read it
+NativePush.postMessage(JSON.stringify({ type: 'enable' }));  // ask for permission first (tap only)
+```
+
+Send `token` to your server. The server sends a **data-only** FCM message
+(`message.data`, all strings) through the
+[FCM HTTP v1 API](https://firebase.google.com/docs/cloud-messaging/send-message):
+
+| data key | meaning |
+|---|---|
+| `title`, `body` | the notification text |
+| `tag` | same tag replaces the previous notification; matched against `alarm_tag` |
+| `url` | page to open on tap: a path like `/?alarm=1`, or a URL on the same site |
+
+Send with `android.priority: "HIGH"` so it shows promptly on a sleeping phone. If FCM answers
+`UNREGISTERED` (404), the app was uninstalled, so drop that token.
 
 ## Use a permanent signing key (do this before sharing the app)
 

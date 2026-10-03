@@ -29,6 +29,11 @@ on:
         description: "Notifications whose tag contains this text play the alarm sound (blank = none)"
         required: false
         default: ""
+      native_push:
+        description: "Native app: site in the app's own WebView, push via Firebase instead of Chrome (needs GOOGLE_SERVICES_JSON secret, see README)"
+        type: boolean
+        required: false
+        default: false
       version_code:
         description: "Version code (integer, increase for each update)"
         required: false
@@ -111,11 +116,26 @@ jobs:
           IN_VCODE: ${{ inputs.version_code }}
           IN_VNAME: ${{ inputs.version_name }}
           IN_ALARM_TAG: ${{ inputs.alarm_tag }}
+          IN_NATIVE: ${{ inputs.native_push }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
           ARGS=(-PappUrl="$IN_URL" -PappName="$IN_NAME" -PpackageId="$IN_PACKAGE" \
                 -PthemeColor="$IN_THEME" -PversionCode="$IN_VCODE" -PversionName="$IN_VNAME" \
                 -PalarmTag="$IN_ALARM_TAG")
+          if [ "$IN_NATIVE" = "true" ]; then
+            ARGS+=(-PnativePush=true)
+          fi
           gradle --no-daemon "${ARGS[@]}" printAppConfig | tee config.txt
+          if [ "$IN_NATIVE" = "true" ]; then
+            PACKAGE_ID=$(grep '^packageId=' config.txt | cut -d= -f2-)
+            FIREBASE_ARGS=$(python scripts/firebase_config.py "$PACKAGE_ID")
+            if [ -n "$FIREBASE_ARGS" ]; then
+              mapfile -t FIREBASE <<< "$FIREBASE_ARGS"
+              ARGS+=("${FIREBASE[@]}")
+            else
+              echo "::warning::No GOOGLE_SERVICES_JSON secret - this native build has no push. See README."
+            fi
+          fi
           gradle --no-daemon "${ARGS[@]}" :app:assembleRelease
 
       - name: Collect APK and assetlinks.json
@@ -157,8 +177,13 @@ jobs:
               echo "> **Throwaway signing key.** Add the KEYSTORE_* secrets (see README) before sharing this app."
             fi
             echo
-            echo "### Required: publish this at \`${ORIGIN}/.well-known/assetlinks.json\`"
-            echo "Without it the app shows a browser URL bar and notifications appear under Chrome instead of your app."
+            if [ "${{ inputs.native_push }}" = "true" ]; then
+              echo "### Native build: no assetlinks.json needed"
+              echo "The site runs in the app's own WebView and push comes through Firebase. The file below is only needed for Chrome (TWA) builds."
+            else
+              echo "### Required: publish this at \`${ORIGIN}/.well-known/assetlinks.json\`"
+              echo "Without it the app shows a browser URL bar and notifications appear under Chrome instead of your app."
+            fi
             echo
             echo '```json'
             cat dist/assetlinks.json
