@@ -199,6 +199,7 @@ public class WebAppActivity extends Activity {
     protected void onResume() {
         super.onResume();
         onScreen = true;
+        wakeListener.resume();
     }
 
     @Override
@@ -208,12 +209,6 @@ public class WebAppActivity extends Activity {
         CookieManager.getInstance().flush();
         // Not listening to the room while the app is in the background.
         wakeListener.pause();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        wakeListener.resume();
     }
 
     @Override
