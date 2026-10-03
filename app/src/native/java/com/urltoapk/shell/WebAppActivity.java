@@ -63,6 +63,9 @@ import java.util.Set;
  *
  * and the reply is {type: "state", available, permission: "granted"|"denied"|"default",
  * token, error}. The page sends the token to its server, which pushes through Firebase.
+ *
+ * The same object carries speech: "speech-start" / "speech-stop" run Android's recogniser
+ * for the page, which the WebView's own Web Speech API cannot do — see WakeListener.
  */
 public class WebAppActivity extends Activity {
     static final String EXTRA_URL = "com.urltoapk.shell.URL";
@@ -71,6 +74,7 @@ public class WebAppActivity extends Activity {
     private static final int REQUEST_NOTIFICATIONS = 2;
     private static final int REQUEST_MICROPHONE = 3;
     private static final int REQUEST_STORAGE = 4;
+    private static final int REQUEST_SPEECH = 5;
 
     // Runs at document start on the app's origin. A download of a blob: or data: URL never
     // reaches the DownloadListener in a usable form (the page usually revokes the blob right
@@ -132,6 +136,7 @@ public class WebAppActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingMediaRequest;
     private JavaScriptReplyProxy pendingEnableReply;
+    private WakeListener wakeListener;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -162,6 +167,8 @@ public class WebAppActivity extends Activity {
         webView.setWebViewClient(new AppWebViewClient());
         webView.setWebChromeClient(new AppChromeClient());
         webView.setDownloadListener(this::download);
+        wakeListener = new WakeListener(this, () -> requestPermissions(
+                new String[] {Manifest.permission.RECORD_AUDIO}, REQUEST_SPEECH));
         installBridge();
 
         current = new WeakReference<>(this);
@@ -199,11 +206,20 @@ public class WebAppActivity extends Activity {
         super.onPause();
         onScreen = false;
         CookieManager.getInstance().flush();
+        // Not listening to the room while the app is in the background.
+        wakeListener.pause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        wakeListener.resume();
     }
 
     @Override
     protected void onDestroy() {
         if (current.get() == this) current.clear();
+        wakeListener.stop();
         webView.destroy();
         super.onDestroy();
     }
@@ -248,6 +264,12 @@ public class WebAppActivity extends Activity {
     }
 
     private class AppWebViewClient extends WebViewClient {
+        @Override
+        public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+            // Whatever page asked for listening is gone; the new one asks again if it wants to.
+            wakeListener.stop();
+        }
+
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             Uri url = request.getUrl();
@@ -348,6 +370,12 @@ public class WebAppActivity extends Activity {
                     replyState(reply, null);
                 }
                 break;
+            case "speech-start":
+                runOnUiThread(() -> wakeListener.start(reply));
+                break;
+            case "speech-stop":
+                runOnUiThread(() -> wakeListener.stop());
+                break;
             case "download":
                 saveDataUrl(json.optString("name", "download"), json.optString("mime"),
                         json.optString("data"));
@@ -418,6 +446,8 @@ public class WebAppActivity extends Activity {
                 pendingMediaRequest.deny();
             }
             pendingMediaRequest = null;
+        } else if (requestCode == REQUEST_SPEECH) {
+            wakeListener.onPermissionResult(granted);
         } else if (requestCode == REQUEST_STORAGE && !granted) {
             Toast.makeText(this, "Allow storage to save downloads", Toast.LENGTH_SHORT).show();
         }
@@ -472,6 +502,9 @@ public class WebAppActivity extends Activity {
                 request.deny();
                 return;
             }
+            // The page is about to record. Android gives the microphone to one of them at a
+            // time, so the recogniser lets go; the page asks for it again when it is done.
+            wakeListener.stop();
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED) {
                 request.grant(new String[] {PermissionRequest.RESOURCE_AUDIO_CAPTURE});

@@ -167,6 +167,28 @@ window.addEventListener('nativepush', (event) => {
 Send with `android.priority: "HIGH"` so it shows promptly on a sleeping phone. If FCM answers
 `UNREGISTERED` (404), the app was uninstalled, so drop that token.
 
+### Speech recognition (wake words)
+
+The WebView exposes `SpeechRecognition` but has no speech service behind it, so it fails at
+once. The app listens with Android's own recogniser instead (on-device where the phone has
+it), while the app is in the foreground, and hands the page every phrase it hears:
+
+```js
+NativePush.addEventListener('message', (event) => {
+  const msg = JSON.parse(event.data);
+  // { type: 'speech-ready' }                          listening has started
+  // { type: 'speech-result', texts: ['hey smokey', ...] }  best guess first
+  // { type: 'speech-error', error: 'not-allowed' | 'unavailable' }  and it has stopped
+});
+NativePush.postMessage(JSON.stringify({ type: 'speech-start' }));  // asks for the mic if needed
+NativePush.postMessage(JSON.stringify({ type: 'speech-stop' }));
+```
+
+It keeps listening (restarting after each phrase) until `speech-stop`, a page navigation, or
+the page asking for the microphone through `getUserMedia` — Android gives the mic to one of
+them at a time, so send `speech-start` again after recording. Use `addEventListener` rather
+than `onmessage` so it does not displace the push handler above.
+
 ## Use a permanent signing key (do this before sharing the app)
 
 Without a key, every build gets a new throwaway key. That breaks updates and changes
