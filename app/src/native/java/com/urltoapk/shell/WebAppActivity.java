@@ -65,7 +65,8 @@ import java.util.Set;
  * token, error}. The page sends the token to its server, which pushes through Firebase.
  *
  * The same object carries speech: "speech-start" / "speech-stop" run Android's recogniser
- * for the page, which the WebView's own Web Speech API cannot do — see WakeListener.
+ * for the page, which the WebView's own Web Speech API cannot do — see WakeListener — and
+ * "speak" / "speak-stop" say a sentence out loud with Android's text-to-speech — see Speaker.
  */
 public class WebAppActivity extends Activity {
     static final String EXTRA_URL = "com.urltoapk.shell.URL";
@@ -137,6 +138,7 @@ public class WebAppActivity extends Activity {
     private PermissionRequest pendingMediaRequest;
     private JavaScriptReplyProxy pendingEnableReply;
     private WakeListener wakeListener;
+    private Speaker speaker;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -169,6 +171,7 @@ public class WebAppActivity extends Activity {
         webView.setDownloadListener(this::download);
         wakeListener = new WakeListener(this, () -> requestPermissions(
                 new String[] {Manifest.permission.RECORD_AUDIO}, REQUEST_SPEECH));
+        speaker = new Speaker(this);
         installBridge();
 
         current = new WeakReference<>(this);
@@ -223,6 +226,7 @@ public class WebAppActivity extends Activity {
     protected void onDestroy() {
         if (current.get() == this) current.clear();
         wakeListener.stop();
+        speaker.shutdown();
         webView.destroy();
         super.onDestroy();
     }
@@ -271,6 +275,7 @@ public class WebAppActivity extends Activity {
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
             // Whatever page asked for listening is gone; the new one asks again if it wants to.
             wakeListener.stop();
+            speaker.stop();
         }
 
         @Override
@@ -384,6 +389,14 @@ public class WebAppActivity extends Activity {
                 break;
             case "speech-stop":
                 runOnUiThread(() -> wakeListener.stop());
+                break;
+            case "speak":
+                String id = json.optString("id");
+                String text = json.optString("text");
+                runOnUiThread(() -> speaker.speak(id, text, reply));
+                break;
+            case "speak-stop":
+                runOnUiThread(() -> speaker.stop());
                 break;
             case "download":
                 saveDataUrl(json.optString("name", "download"), json.optString("mime"),
