@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -37,6 +38,10 @@ import java.util.ArrayList;
  * A recogniser session ends after each phrase or a stretch of quiet, so "listening" is really
  * restarting it every time it ends, until told to stop. It also stops on its own when the
  * activity goes to the background (and picks up again on return) and when the page navigates.
+ *
+ * Most recognisers play a tone as each session starts and ends, which with the restarts is a
+ * beep every few seconds. The streams those tones use are muted just around each restart and
+ * unmuted once the recogniser is listening, so it listens silently.
  */
 final class WakeListener implements RecognitionListener {
     interface Host {
@@ -49,11 +54,21 @@ final class WakeListener implements RecognitionListener {
     // quiet; this many in a row and it gives up rather than spin on the microphone all day.
     private static final long FAST_FAILURE_MS = 1000;
     private static final int MAX_FAST_FAILURES = 8;
+    // How long after a session is ready to keep its start tone muted.
+    private static final long UNMUTE_MS = 400;
+    // The tones go to one of these, depending on the phone and recogniser version.
+    private static final int[] TONE_STREAMS = {
+            AudioManager.STREAM_MUSIC, AudioManager.STREAM_NOTIFICATION, AudioManager.STREAM_SYSTEM
+    };
 
     private final Activity activity;
     private final Host host;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable restart = this::listen;
+    private final Runnable unmute = this::unmuteTones;
+    private final AudioManager audio;
+    // The streams this muted (and so may unmute); one the user had muted is left alone.
+    private final boolean[] mutedStreams = new boolean[TONE_STREAMS.length];
 
     private SpeechRecognizer recognizer;
     private boolean onDevice;
@@ -69,6 +84,7 @@ final class WakeListener implements RecognitionListener {
     WakeListener(Activity activity, Host host) {
         this.activity = activity;
         this.host = host;
+        this.audio = (AudioManager) activity.getSystemService(Activity.AUDIO_SERVICE);
     }
 
     // ---- Called by the activity, always on the main thread ---------------------------------
@@ -104,12 +120,14 @@ final class WakeListener implements RecognitionListener {
         wanted = false;
         handler.removeCallbacks(restart);
         destroyRecognizer();
+        unmuteTones();
     }
 
     void pause() {
         paused = true;
         handler.removeCallbacks(restart);
         destroyRecognizer();
+        unmuteTones();
     }
 
     void resume() {
@@ -150,6 +168,7 @@ final class WakeListener implements RecognitionListener {
         intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, activity.getPackageName());
         startedAt = SystemClock.elapsedRealtime();
+        muteTones();
         try {
             recognizer.startListening(intent);
         } catch (RuntimeException e) {
@@ -180,12 +199,14 @@ final class WakeListener implements RecognitionListener {
         ArrayList<String> texts = results == null ? null
                 : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
         if (texts != null && !texts.isEmpty()) send("speech-result", null, texts);
+        unmuteSoon();
         if (wanted && !paused) handler.postDelayed(restart, RESTART_MS);
     }
 
     @Override
     public void onError(int error) {
         if (!wanted || paused) return;
+        unmuteSoon();
         if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
             fail("not-allowed");
             return;
@@ -218,13 +239,50 @@ final class WakeListener implements RecognitionListener {
         handler.postDelayed(restart, RESTART_MS * (1 + fastFailures));
     }
 
-    @Override public void onReadyForSpeech(Bundle params) { }
+    @Override public void onReadyForSpeech(Bundle params) { unmuteSoon(); }
     @Override public void onBeginningOfSpeech() { }
     @Override public void onRmsChanged(float rmsdB) { }
     @Override public void onBufferReceived(byte[] buffer) { }
-    @Override public void onEndOfSpeech() { }
+    // The end tone plays while the phrase is being recognised; the result unmutes again.
+    @Override public void onEndOfSpeech() { muteTones(); }
     @Override public void onPartialResults(Bundle partialResults) { }
     @Override public void onEvent(int eventType, Bundle params) { }
+
+    // ---- Silencing the recogniser's tones -------------------------------------------------
+
+    private void muteTones() {
+        handler.removeCallbacks(unmute);
+        if (audio == null) return;
+        for (int i = 0; i < TONE_STREAMS.length; i++) {
+            if (mutedStreams[i]) continue;
+            try {
+                if (audio.isStreamMute(TONE_STREAMS[i])) continue;
+                audio.adjustStreamVolume(TONE_STREAMS[i], AudioManager.ADJUST_MUTE, 0);
+                mutedStreams[i] = true;
+            } catch (RuntimeException ignored) {
+                // Do Not Disturb can refuse changes to the notification stream.
+            }
+        }
+    }
+
+    private void unmuteSoon() {
+        handler.removeCallbacks(unmute);
+        handler.postDelayed(unmute, UNMUTE_MS);
+    }
+
+    private void unmuteTones() {
+        handler.removeCallbacks(unmute);
+        if (audio == null) return;
+        for (int i = 0; i < TONE_STREAMS.length; i++) {
+            if (!mutedStreams[i]) continue;
+            mutedStreams[i] = false;
+            try {
+                audio.adjustStreamVolume(TONE_STREAMS[i], AudioManager.ADJUST_UNMUTE, 0);
+            } catch (RuntimeException ignored) {
+                // As above.
+            }
+        }
+    }
 
     // ---- To the page ----------------------------------------------------------------------
 
