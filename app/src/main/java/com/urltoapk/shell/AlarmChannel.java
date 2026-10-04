@@ -15,8 +15,8 @@ final class AlarmChannel {
     // A channel's sound and vibration are fixed when it is created and cannot be changed
     // afterwards, so change this id whenever the sound or the vibration pattern changes, and
     // add the old one to RETIRED so it doesn't linger in the app's notification settings.
-    static final String ID = "alarm_v2";
-    private static final String[] RETIRED = {"alarm_v1"};
+    static final String ID = "alarm_v3";
+    private static final String[] RETIRED = {"alarm_v1", "alarm_v2"};
 
     private static final long[] VIBRATION =
             {0, 600, 200, 600, 200, 600, 200, 600, 200, 600, 200, 900};
