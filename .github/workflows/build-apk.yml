@@ -34,6 +34,11 @@ on:
         type: boolean
         required: false
         default: false
+      auto_update:
+        description: "Native app only: update itself from this repo's releases (needs create_release; see README)"
+        type: boolean
+        required: false
+        default: false
       version_code:
         description: "Version code (integer, increase for each update)"
         required: false
@@ -117,6 +122,8 @@ jobs:
           IN_VNAME: ${{ inputs.version_name }}
           IN_ALARM_TAG: ${{ inputs.alarm_tag }}
           IN_NATIVE: ${{ inputs.native_push }}
+          IN_AUTO_UPDATE: ${{ inputs.auto_update }}
+          IN_RELEASE: ${{ inputs.create_release }}
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
           ARGS=(-PappUrl="$IN_URL" -PappName="$IN_NAME" -PpackageId="$IN_PACKAGE" \
@@ -124,6 +131,17 @@ jobs:
                 -PalarmTag="$IN_ALARM_TAG")
           if [ "$IN_NATIVE" = "true" ]; then
             ARGS+=(-PnativePush=true)
+          fi
+          if [ "$IN_AUTO_UPDATE" = "true" ]; then
+            if [ "$IN_NATIVE" != "true" ]; then
+              echo "::warning::auto_update only works in native builds - ignored."
+            else
+              # The app reads this repo's releases, so later builds published here reach it.
+              ARGS+=(-PupdateRepo="$GITHUB_REPOSITORY")
+              if [ "$IN_RELEASE" != "true" ]; then
+                echo "::warning::auto_update is on but create_release is off - phones will not see this build."
+              fi
+            fi
           fi
           gradle --no-daemon "${ARGS[@]}" printAppConfig | tee config.txt
           if [ "$IN_NATIVE" = "true" ]; then
@@ -144,12 +162,19 @@ jobs:
           KEYSTORE_PASSWORD: ${{ env.KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ env.KEY_ALIAS || secrets.KEY_ALIAS }}
           IN_VNAME: ${{ inputs.version_name }}
+          IN_VCODE: ${{ inputs.version_code }}
+          IN_AUTO_UPDATE: ${{ inputs.auto_update }}
         run: |
           PACKAGE_ID=$(grep '^packageId=' config.txt | cut -d= -f2-)
           ORIGIN=$(grep '^origin=' config.txt | cut -d= -f2-)
           SLUG=$(echo "$PACKAGE_ID" | tr '.' '-')
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk "dist/${SLUG}-${IN_VNAME}.apk"
+
+          # What installed copies compare their own versionCode with (see Updater.java).
+          if [ "$IN_AUTO_UPDATE" = "true" ]; then
+            printf '{"versionCode": %d, "versionName": "%s"}\n' "$IN_VCODE" "$IN_VNAME" > dist/update.json
+          fi
 
           FINGERPRINT=$(keytool -list -v -keystore "$KEYSTORE_FILE" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" \
             | grep -E '^\s*SHA256:' | head -1 | sed -E 's/^\s*SHA256:\s*//')

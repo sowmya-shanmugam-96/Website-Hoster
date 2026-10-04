@@ -27,6 +27,8 @@ def appName = prop("appName", host)
 def themeColor = prop("themeColor", "#1E88E5")
 def backgroundColor = prop("backgroundColor", "#FFFFFF")
 def alarmTag = prop("alarmTag", "")
+// Native mode only: "owner/repo" whose GitHub Releases the app updates itself from (blank = off).
+def updateRepo = prop("updateRepo", "")
 
 // Native mode: the site in the app's own WebView, with push through Firebase Cloud Messaging,
 // instead of a Trusted Web Activity in Chrome. Off by default; see README "Native mode".
@@ -65,6 +67,9 @@ android {
         resValue "string", "alarmTag", resEscape(alarmTag)
         resValue "string", "alarmChannelName", "Alarms"
         resValue "string", "notificationChannelName", "Notifications"
+        // Updater: the workflow tags releases <package with dashes>-v<versionName>
+        resValue "string", "updateRepo", resEscape(updateRepo)
+        resValue "string", "updateTagPrefix", packageId.replace(".", "-") + "-v"
         // The resources Firebase reads to initialise itself, as the google-services plugin
         // would generate them.
         if (nativePush && firebase.google_app_id) {

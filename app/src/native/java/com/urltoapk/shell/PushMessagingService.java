@@ -27,6 +27,8 @@ public class PushMessagingService extends FirebaseMessagingService {
         // app is on screen the page is the one making noise, so the alarm doesn't also repeat.
         boolean onScreen = WebAppActivity.handToPage(data);
         AppNotifications.show(this, title, body, data.get("tag"), data.get("url"), !onScreen);
+        // A phone that only ever gets pushes, and never opens the app, still updates.
+        Updater.maybeCheck(this);
     }
 
     @Override

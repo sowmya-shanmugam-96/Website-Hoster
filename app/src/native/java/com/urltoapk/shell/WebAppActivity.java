@@ -200,6 +200,7 @@ public class WebAppActivity extends Activity {
         super.onResume();
         onScreen = true;
         wakeListener.resume();
+        Updater.maybeCheck(this);
     }
 
     @Override
@@ -209,6 +210,13 @@ public class WebAppActivity extends Activity {
         CookieManager.getInstance().flush();
         // Not listening to the room while the app is in the background.
         wakeListener.pause();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // Off screen: an update that installs without asking can go in now (it closes the app).
+        Updater.onBackground(this);
     }
 
     @Override
@@ -330,6 +338,12 @@ public class WebAppActivity extends Activity {
                     null);
         });
         return activity.onScreen;
+    }
+
+    /** Whether the app is in front of the user. Callable from any thread. */
+    static boolean isOnScreen() {
+        WebAppActivity activity = current.get();
+        return activity != null && !activity.isDestroyed() && activity.onScreen;
     }
 
     private void installBridge() {

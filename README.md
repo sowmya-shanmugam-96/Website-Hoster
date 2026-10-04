@@ -189,6 +189,21 @@ the page asking for the microphone through `getUserMedia` — Android gives the 
 them at a time, so send `speech-start` again after recording. Use `addEventListener` rather
 than `onmessage` so it does not displace the push handler above.
 
+### Auto-update
+
+Build with `auto_update` and `create_release` on, and every later build released the same
+way reaches installed phones by itself; no more copying APKs. The release gets an
+`update.json` beside the APK, and the app checks this repo's releases every few hours (when
+it opens and when a push arrives), downloads a newer `versionCode` and installs it. So
+`version_code` must go up each build, and the repo must stay public (the check is anonymous).
+
+- The build with auto-update in it has to be installed by hand once.
+- The first self-update asks: Android shows "allow installs from this app" once, then the
+  usual install prompt (as a notification if the app is closed).
+- From then on, on Android 12+, updates install silently while the app is closed or in the
+  background. Older Android asks each time.
+- Only APKs signed with the same key install, so use a permanent signing key (below).
+
 ## Use a permanent signing key (do this before sharing the app)
 
 Without a key, every build gets a new throwaway key. That breaks updates and changes

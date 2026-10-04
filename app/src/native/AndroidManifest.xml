@@ -10,6 +10,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Updater: installing a newer build of this app from its GitHub Releases -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- getUserMedia({ audio: true }) in the page -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -52,6 +54,11 @@
                 <data android:scheme="https" android:host="${hostName}" />
             </intent-filter>
         </activity>
+
+        <!-- PackageInstaller's result for an update Updater committed -->
+        <receiver
+            android:name="com.urltoapk.shell.UpdateReceiver"
+            android:exported="false" />
 
         <service
             android:name="com.urltoapk.shell.PushMessagingService"
